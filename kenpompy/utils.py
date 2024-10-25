@@ -2,49 +2,30 @@
 The utils module provides utility functions, such as logging in.
 """
 
-import mechanicalsoup
-from requests import Session
-from ._DESAdapter import DESAdapter, environment_requires_DES_adapter
+import cloudscraper
 
 def login(email, password):
-	"""
-	Logs in to kenpom.com using user credentials.
 
-	Args:
-		email (str): User e-mail for login to kenpom.com.
-		password (str): User password for login to kenpom.com.
+    # Create a Cloudscraper session
+    scraper = cloudscraper.create_scraper()
 
-	Returns:
-		browser (mechanicalsoup StatefulBrowser): Authenticated browser with full access to kenpom.com.
-	"""
+    scraper.get('https://kenpom.com/index.php')
 
-	# Fix for Cloudflare SSL profiling (https://github.com/j-andrews7/kenpompy/issues/33) provided by Nick Ostendorf (@nickostendorf)
-	session = Session()
-	if environment_requires_DES_adapter():
-		session.mount('https://kenpom.com/', DESAdapter())
+    form_data = {
+        'email': email,
+        'password': password,
+        'submit': 'Login!',
+    }
 
-	browser = mechanicalsoup.StatefulBrowser(session)
-	browser.set_user_agent('Mozilla/5.0')
-	browser.open('https://kenpom.com/index.php')
+    scraper.post(
+        'https://kenpom.com/handlers/login_handler.php',
+        data=form_data,
+        allow_redirects=True,
+    )
 
-	if 'Cloudflare' in browser.page.title.string:
-		raise Exception(
-			'Opening kenpom.com failed - request was intercepted by Cloudflare protection')
+    # Check if login was successful
+    home_page = scraper.get('https://kenpom.com/')
+    if 'Logout' not in home_page.text:
+        raise Exception('Logging in failed - check your credentials.')
 
-	# Response page actually throws an error but further navigation works and will show you as logged in.
-	browser.get_current_page()
-	browser.select_form('form[action="handlers/login_handler.php"]')
-	browser['email'] = email
-	browser['password'] = password
-
-	response = browser.submit_selected()
-
-	if response.status_code != 200 or 'PHPSESSID=' not in response.headers['set-cookie']:
-		raise Exception(
-			'Logging in to kenpom.com failed - check that the site is available and your credentials are correct.')
-	
-	if 'subscription expired' in str(browser.get('https://kenpom.com/index.php').content):
-		raise Exception(
-			'Logging in to kenpom.com failed - account subscription is expired')
-
-	return browser
+    return scraper
